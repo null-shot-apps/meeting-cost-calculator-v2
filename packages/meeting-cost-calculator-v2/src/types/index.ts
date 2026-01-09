@@ -68,3 +68,12 @@ export interface SalaryEstimateResponse {
   notes: string;
 }
 
+export interface MeetingSettings {
+  overheadMultiplier: number;
+  frequency: MeetingFrequency;
+  currency: string;
+  theme: 'light' | 'dark' | 'auto';
+  targetDuration?: number;
+}
+
+

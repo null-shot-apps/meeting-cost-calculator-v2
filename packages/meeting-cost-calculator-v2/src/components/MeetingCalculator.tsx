@@ -1,249 +1,188 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { Meeting, Attendee, MeetingStatus } from '@/types';
-import { generateId, formatCurrency, formatTime } from '@/lib/utils';
-import { storage } from '@/lib/storage';
-import { CostDisplay } from './CostDisplay';
-import { TimerControls } from './TimerControls';
-import { AttendeeList } from './AttendeeList';
-import { SettingsPanel } from './SettingsPanel';
-import { MeetingInsights } from './MeetingInsights';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Attendee, MeetingSettings } from '../types';
+import CostDisplay from './CostDisplay';
+import TimerControls from './TimerControls';
+import AttendeeList from './AttendeeList';
+import SettingsPanel from './SettingsPanel';
+import MeetingInsights from './MeetingInsights';
 
-export function MeetingCalculator() {
-  const [meeting, setMeeting] = useState<Meeting>({
-    id: generateId(),
-    name: 'New Meeting',
-    startTime: null,
-    duration: 0,
-    status: 'idle',
-    frequency: 'one-time',
-    overheadMultiplier: 1.5,
-    pausedAt: null,
-    totalPausedTime: 0,
-  });
-
+export default function MeetingCalculator() {
+  const [status, setStatus] = useState<'idle' | 'running' | 'paused' | 'ended'>('idle');
+  const [startTime, setStartTime] = useState<number>(0);
+  const [duration, setDuration] = useState<number>(0);
   const [attendees, setAttendees] = useState<Attendee[]>([]);
-  const [currentCost, setCurrentCost] = useState(0);
+  const [settings, setSettings] = useState<MeetingSettings>({
+    overheadMultiplier: 1.5,
+    frequency: 'one-time',
+    currency: 'USD',
+    theme: 'auto',
+  });
   const [showSettings, setShowSettings] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
-  const [currency, setCurrency] = useState('USD');
 
-  // Load saved data on mount
+  // Load from localStorage
   useEffect(() => {
-    const savedCurrency = storage.getCurrency();
-    const savedOverhead = storage.getOverheadMultiplier();
-    const lastMeeting = storage.getLastMeeting();
-
-    setCurrency(savedCurrency);
-    setMeeting(prev => ({ ...prev, overheadMultiplier: savedOverhead }));
-
-    if (lastMeeting && lastMeeting.attendees.length > 0) {
-      setAttendees(lastMeeting.attendees);
+    const saved = localStorage.getItem('meetingCalculator');
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data.attendees) setAttendees(data.attendees);
+        if (data.settings) setSettings(data.settings);
+      } catch (e) {
+        console.error('Failed to load saved data', e);
+      }
     }
   }, []);
 
-  // Calculate cost
-  const calculateCurrentCost = useCallback(() => {
-    if (meeting.status !== 'running' || !meeting.startTime) return currentCost;
-
-    const now = Date.now();
-    const elapsed = (now - meeting.startTime - meeting.totalPausedTime) / 1000; // seconds
-    
-    const totalHourlyRate = attendees.reduce((sum, attendee) => {
-      return sum + (attendee.hourlyRate * meeting.overheadMultiplier);
-    }, 0);
-
-    const cost = (totalHourlyRate / 3600) * elapsed;
-    return cost;
-  }, [meeting, attendees, currentCost]);
-
-  // Timer effect
+  // Save to localStorage
   useEffect(() => {
-    if (meeting.status !== 'running') return;
+    localStorage.setItem(
+      'meetingCalculator',
+      JSON.stringify({ attendees, settings })
+    );
+  }, [attendees, settings]);
 
-    const interval = setInterval(() => {
-      const cost = calculateCurrentCost();
-      setCurrentCost(cost);
-      
-      setMeeting(prev => ({
-        ...prev,
-        duration: Math.floor((Date.now() - (prev.startTime || 0) - prev.totalPausedTime) / 1000),
-      }));
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, [meeting.status, calculateCurrentCost]);
-
-  // Save meeting state
+  // Timer logic
   useEffect(() => {
-    if (attendees.length > 0) {
-      storage.saveLastMeeting(attendees, meeting.overheadMultiplier);
+    let interval: NodeJS.Timeout;
+    if (status === 'running') {
+      interval = setInterval(() => {
+        setDuration(Date.now() - startTime);
+      }, 100);
     }
-  }, [attendees, meeting.overheadMultiplier]);
+    return () => clearInterval(interval);
+  }, [status, startTime]);
 
   const handleStart = () => {
-    if (attendees.length === 0) return;
-    
-    setMeeting(prev => ({
-      ...prev,
-      status: 'running',
-      startTime: Date.now(),
-      duration: 0,
-      totalPausedTime: 0,
-    }));
-    setCurrentCost(0);
+    if (attendees.length === 0) {
+      alert('Please add at least one attendee');
+      return;
+    }
+    setStartTime(Date.now());
+    setDuration(0);
+    setStatus('running');
   };
 
   const handlePause = () => {
-    setMeeting(prev => ({
-      ...prev,
-      status: 'paused',
-      pausedAt: Date.now(),
-    }));
+    setStatus('paused');
   };
 
   const handleResume = () => {
-    setMeeting(prev => {
-      const pauseDuration = prev.pausedAt ? Date.now() - prev.pausedAt : 0;
-      return {
-        ...prev,
-        status: 'running',
-        pausedAt: null,
-        totalPausedTime: prev.totalPausedTime + pauseDuration,
-      };
-    });
+    setStartTime(Date.now() - duration);
+    setStatus('running');
   };
 
   const handleReset = () => {
-    if (currentCost > 0) {
-      const confirmed = window.confirm(
-        `This will clear ${formatCurrency(currentCost, currency)} - continue?`
-      );
-      if (!confirmed) return;
-    }
-
-    setMeeting(prev => ({
-      ...prev,
-      id: generateId(),
-      startTime: null,
-      duration: 0,
-      status: 'idle',
-      pausedAt: null,
-      totalPausedTime: 0,
-    }));
-    setCurrentCost(0);
+    setStatus('idle');
+    setDuration(0);
+    setStartTime(0);
   };
 
-  const handleEnd = () => {
-    if (meeting.duration > 0 && attendees.length > 0) {
-      storage.addToHistory({
-        id: meeting.id,
-        name: meeting.name,
-        date: meeting.startTime || Date.now(),
-        duration: meeting.duration,
-        finalCost: currentCost,
-        attendeeCount: attendees.length,
-        attendees: attendees,
-      });
-      setShowInsights(true);
-    }
-
-    setMeeting(prev => ({
-      ...prev,
-      status: 'ended',
-    }));
+  const handleAddAttendee = (attendee: Omit<Attendee, 'id'>) => {
+    setAttendees([
+      ...attendees,
+      {
+        ...attendee,
+        id: Math.random().toString(36).substr(2, 9),
+      },
+    ]);
   };
 
-  const costPerMinute = meeting.duration > 0 ? (currentCost / (meeting.duration / 60)) : 0;
+  const handleRemoveAttendee = (id: string) => {
+    setAttendees(attendees.filter((a) => a.id !== id));
+  };
+
+  const handleUpdateAttendee = (id: string, updates: Partial<Attendee>) => {
+    setAttendees(
+      attendees.map((a) => (a.id === id ? { ...a, ...updates } : a))
+    );
+  };
+
+  const calculateTotalCost = useCallback(() => {
+    const durationHours = duration / 1000 / 60 / 60;
+    const baseCost = attendees.reduce(
+      (sum, attendee) => sum + attendee.hourlyRate * durationHours,
+      0
+    );
+    return baseCost * settings.overheadMultiplier;
+  }, [duration, attendees, settings.overheadMultiplier]);
+
+  const totalCost = calculateTotalCost();
+  const costPerMinute = duration > 0 ? totalCost / (duration / 1000 / 60) : 0;
 
   return (
-    <div className="min-h-screen p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white">
-              Meeting Cost Calculator
-            </h1>
-            <p className="text-slate-600 dark:text-slate-400 mt-2">
-              What&apos;s this meeting really costing?
-            </p>
+    <div className="max-w-7xl mx-auto">
+      <div className="grid lg:grid-cols-3 gap-6">
+        {/* Main Display */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-8">
+            <CostDisplay
+              totalCost={totalCost}
+              duration={duration}
+              costPerMinute={costPerMinute}
+              status={status}
+            />
+            <div className="mt-8">
+              <TimerControls
+                status={status}
+                onStart={handleStart}
+                onPause={handlePause}
+                onResume={handleResume}
+                onReset={handleReset}
+                totalCost={totalCost}
+              />
+            </div>
           </div>
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className="p-3 rounded-lg bg-white dark:bg-slate-800 shadow-md hover:shadow-lg transition-shadow"
-            aria-label="Settings"
-          >
-            <svg className="w-6 h-6 text-slate-700 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </button>
+
+          {/* Action Buttons */}
+          <div className="flex gap-4">
+            <button
+              onClick={() => setShowSettings(true)}
+              className="flex-1 px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-semibold transition-colors"
+            >
+              ⚙️ Settings
+            </button>
+            <button
+              onClick={() => setShowInsights(true)}
+              disabled={totalCost === 0}
+              className="flex-1 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              📊 Insights
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Display */}
-          <div className="lg:col-span-2 space-y-6">
-            <CostDisplay
-              cost={currentCost}
-              duration={meeting.duration}
-              costPerMinute={costPerMinute}
-              status={meeting.status}
-              currency={currency}
-            />
-
-            <TimerControls
-              status={meeting.status}
-              onStart={handleStart}
-              onPause={handlePause}
-              onResume={handleResume}
-              onReset={handleReset}
-              onEnd={handleEnd}
-              disabled={attendees.length === 0}
-            />
-          </div>
-
-          {/* Attendees */}
-          <div className="lg:col-span-1">
+        {/* Attendee List */}
+        <div className="lg:col-span-1">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6">
             <AttendeeList
               attendees={attendees}
-              setAttendees={setAttendees}
-              overheadMultiplier={meeting.overheadMultiplier}
-              duration={meeting.duration}
-              currency={currency}
-              disabled={meeting.status === 'running'}
+              onAddAttendee={handleAddAttendee}
+              onRemoveAttendee={handleRemoveAttendee}
+              onUpdateAttendee={handleUpdateAttendee}
+              duration={duration}
             />
           </div>
         </div>
-
-        {/* Settings Panel */}
-        {showSettings && (
-          <SettingsPanel
-            meeting={meeting}
-            setMeeting={setMeeting}
-            currency={currency}
-            setCurrency={setCurrency}
-            attendees={attendees}
-            setAttendees={setAttendees}
-            onClose={() => setShowSettings(false)}
-          />
-        )}
-
-        {/* Insights */}
-        {showInsights && meeting.status === 'ended' && (
-          <MeetingInsights
-            meeting={meeting}
-            attendees={attendees}
-            finalCost={currentCost}
-            currency={currency}
-            onClose={() => {
-              setShowInsights(false);
-              handleReset();
-            }}
-          />
-        )}
       </div>
+
+      {/* Modals */}
+      <SettingsPanel
+        settings={settings}
+        onUpdateSettings={(updates) => setSettings({ ...settings, ...updates })}
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+      />
+
+      <MeetingInsights
+        duration={duration}
+        totalCost={totalCost}
+        attendees={attendees}
+        isOpen={showInsights}
+        onClose={() => setShowInsights(false)}
+      />
     </div>
   );
 }

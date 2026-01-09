@@ -1,121 +1,97 @@
 'use client';
 
-import { MeetingStatus } from '@/types';
-import { formatCurrency, formatTime, getCostColor, getCostGradient } from '@/lib/utils';
+import React from 'react';
 
 interface CostDisplayProps {
-  cost: number;
+  totalCost: number;
   duration: number;
   costPerMinute: number;
-  status: MeetingStatus;
-  currency: string;
+  status: 'idle' | 'running' | 'paused' | 'ended';
 }
 
-export function CostDisplay({ cost, duration, costPerMinute, status, currency }: CostDisplayProps) {
-  const isRunning = status === 'running';
-  const costColor = getCostColor(cost);
-  const gradient = getCostGradient(cost);
+export default function CostDisplay({
+  totalCost,
+  duration,
+  costPerMinute,
+  status,
+}: CostDisplayProps) {
+  const formatTime = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds
+        .toString()
+        .padStart(2, '0')}`;
+    }
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const getCostColor = () => {
+    if (totalCost === 0) return 'text-gray-400';
+    if (totalCost < 100) return 'text-green-600 dark:text-green-400';
+    if (totalCost < 500) return 'text-yellow-600 dark:text-yellow-400';
+    if (totalCost < 1000) return 'text-orange-600 dark:text-orange-400';
+    return 'text-red-600 dark:text-red-400';
+  };
+
+  const getBackgroundGradient = () => {
+    if (totalCost === 0) return 'from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900';
+    if (totalCost < 100) return 'from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20';
+    if (totalCost < 500) return 'from-yellow-50 to-yellow-100 dark:from-yellow-900/20 dark:to-yellow-800/20';
+    if (totalCost < 1000) return 'from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20';
+    return 'from-red-50 to-red-100 dark:from-red-900/20 dark:to-red-800/20';
+  };
 
   return (
-    <div className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8 md:p-12 overflow-hidden">
-      {/* Background gradient effect */}
-      <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-5`} />
-      
-      {/* Floating dollar signs animation */}
-      {isRunning && (
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="dollar-float">$</div>
-          <div className="dollar-float" style={{ animationDelay: '1s', left: '70%' }}>$</div>
-          <div className="dollar-float" style={{ animationDelay: '2s', left: '30%' }}>$</div>
+    <div className={`text-center p-8 rounded-lg bg-gradient-to-br ${getBackgroundGradient()} transition-all duration-500 relative`}>
+      {/* Timer */}
+      <div className="mb-4">
+        <div className="text-6xl font-mono font-bold text-gray-700 dark:text-gray-300">
+          {formatTime(duration)}
+        </div>
+        <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          {status === 'running' && '⏱️ Running'}
+          {status === 'paused' && '⏸️ Paused'}
+          {status === 'idle' && '⏱️ Ready to start'}
+          {status === 'ended' && '✓ Ended'}
+        </div>
+      </div>
+
+      {/* Total Cost */}
+      <div className="mb-6">
+        <div className={`text-8xl font-bold ${getCostColor()} transition-all duration-300 ${
+          status === 'running' ? 'animate-pulse' : ''
+        }`}>
+          ${totalCost.toFixed(2)}
+        </div>
+        <div className="text-xl text-gray-600 dark:text-gray-400 mt-2">
+          Total Meeting Cost
+        </div>
+      </div>
+
+      {/* Cost Per Minute */}
+      {costPerMinute > 0 && (
+        <div className="pt-4 border-t border-gray-300 dark:border-gray-600">
+          <div className="text-3xl font-semibold text-gray-700 dark:text-gray-300">
+            ${costPerMinute.toFixed(2)}/min
+          </div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            Cost per minute
+          </div>
         </div>
       )}
 
-      <div className="relative z-10">
-        {/* Timer */}
-        <div className="text-center mb-6">
-          <div className="text-2xl md:text-3xl font-mono text-slate-600 dark:text-slate-400">
-            {formatTime(duration)}
-          </div>
+      {/* Floating dollar signs animation */}
+      {status === 'running' && totalCost > 0 && (
+        <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-10">
+          <div className="animate-float-slow text-4xl absolute top-10 left-10">💰</div>
+          <div className="animate-float-medium text-3xl absolute top-20 right-20">💵</div>
+          <div className="animate-float-fast text-2xl absolute bottom-20 left-1/4">💸</div>
         </div>
-
-        {/* Main Cost */}
-        <div className="text-center mb-8">
-          <div className={`text-6xl md:text-8xl font-bold ${costColor} transition-colors duration-300 ${isRunning ? 'animate-pulse-subtle' : ''}`}>
-            {formatCurrency(cost, currency)}
-          </div>
-          <div className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-            Current Meeting Cost
-          </div>
-        </div>
-
-        {/* Cost per minute */}
-        {duration > 0 && (
-          <div className="text-center pt-6 border-t border-slate-200 dark:border-slate-700">
-            <div className="text-slate-600 dark:text-slate-400 text-sm mb-1">
-              Cost per minute
-            </div>
-            <div className="text-2xl md:text-3xl font-semibold text-slate-900 dark:text-white">
-              {formatCurrency(costPerMinute, currency)}
-            </div>
-          </div>
-        )}
-
-        {/* Status indicator */}
-        {status !== 'idle' && (
-          <div className="absolute top-4 right-4">
-            <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${
-              status === 'running' 
-                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                : status === 'paused'
-                ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
-            }`}>
-              <div className={`w-2 h-2 rounded-full ${
-                status === 'running' ? 'bg-green-500 animate-pulse' : 'bg-current'
-              }`} />
-              {status === 'running' ? 'In Progress' : status === 'paused' ? 'Paused' : 'Ended'}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <style jsx>{`
-        .dollar-float {
-          position: absolute;
-          font-size: 2rem;
-          opacity: 0.1;
-          animation: float 4s ease-in-out infinite;
-          left: 50%;
-          bottom: -20px;
-        }
-
-        @keyframes float {
-          0% {
-            transform: translateY(0) translateX(-50%);
-            opacity: 0;
-          }
-          50% {
-            opacity: 0.1;
-          }
-          100% {
-            transform: translateY(-400px) translateX(-50%);
-            opacity: 0;
-          }
-        }
-
-        .animate-pulse-subtle {
-          animation: pulse-subtle 2s ease-in-out infinite;
-        }
-
-        @keyframes pulse-subtle {
-          0%, 100% {
-            transform: scale(1);
-          }
-          50% {
-            transform: scale(1.02);
-          }
-        }
-      `}</style>
+      )}
     </div>
   );
 }
